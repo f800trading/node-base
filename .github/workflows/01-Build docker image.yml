@@ -1,0 +1,72 @@
+# This is a basic workflow that is manually triggered
+
+name: 01-Manual build docker image
+
+# Controls when the action will run. Workflow runs when manually triggered using the UI
+# or API.
+on:
+  push:
+    branches: [master]
+
+#   pull_request:
+#     branches: [master]
+
+  workflow_dispatch:
+    # Inputs the workflow accepts.
+    inputs:
+      name:
+        # Friendly description to be shown in the UI instead of 'name'
+        description: 'Person to greet'
+        # Default value if no value is explicitly provided
+        default: 'World'
+
+env:
+  # TODO: Change variable to your image's name.
+  IMAGE_NAME: node-base
+  #   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "greet"
+  greet:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Retrieve information from package.json
+      uses: myrotvorets/info-from-package-json-action@0.0.2
+      id: ver
+
+    - name: Build image
+      run: docker build . --file Dockerfile --tag $IMAGE_NAME --build-arg CI=true --build-arg BUILD_NUMBER=$GITHUB_RUN_NUMBER --build-arg NPM_TOKEN=${{secrets.NPM_TOKEN}}
+
+    - name: Log into registry
+      run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login docker.pkg.github.com -u t800tradingdevops --password-stdin
+
+    - name: Push image
+      run: |
+        IMAGE_ID=docker.pkg.github.com/${{ github.repository }}/$IMAGE_NAME
+
+        # Change all uppercase to lowercase
+        IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
+
+        # Strip git ref prefix from version
+        VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+
+        # Strip "v" prefix from tag name
+        [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
+
+        # Use Docker `latest` tag convention
+        #[ "$VERSION" == "master" ] && VERSION=latest
+        VERSION=${{ steps.ver.outputs.packageVersion }}
+
+        echo IMAGE_ID=$IMAGE_ID
+        echo VERSION=$VERSION
+
+        docker tag $IMAGE_NAME $IMAGE_ID:$VERSION
+        docker push $IMAGE_ID:$VERSION
+        docker tag $IMAGE_NAME $IMAGE_ID:latest
+        docker push $IMAGE_ID:latest
